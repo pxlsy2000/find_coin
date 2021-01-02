@@ -2,13 +2,15 @@ import sys
 import os
 import bitcoin
 import time
-# Find key from image
+from tqdm import tqdm
+from multiprocessing import Pool
+
+# Find key from image Based on a magic number
 
 # bytes to read at a time from file (4GB)
 readlength=4*1024*1024*1024
-#readlength=100
-#magic = b"\x81\xD3\x02\x01\x01\x04\x20"
-magic = b"\x04\x20"
+magic = b"\x81\xD3\x02\x01\x01\x04\x20"
+#magic = b"\x04\x20"
 magiclen = len(magic)
 keylen = 32
 
@@ -18,16 +20,16 @@ target_addr = "1PUXsA9TXsTNkBqwz7P3YWsGq9piqe8rFt"
 def find_keys(fname):
     keys = list()
 
-    i=0
-
     # Get file size
-    size = os.path.getsize(fname)
+    file_size = os.path.getsize(fname)
 
+    founded_num=0
+    pbar = tqdm(total=file_size)
+    pbar.set_description(f"Scanning private keys... Founded {founded_num}")
     with open(fname, "rb") as f:
         #Read one block at a time, length == readlength(10MB)
         while True:
             data = f.read(readlength)
-            print(f"Process {100*(f.tell()-readlength)/size:.2f}%")
 
             if not data:
                 break
@@ -45,16 +47,13 @@ def find_keys(fname):
 
                 # Luck found in this block
                 else:
-                    #print(f"{i}:", f"file ptr={f.tell()-readlength}", f"block ptr={pos}",
-                    #     f" sum={f.tell()-readlength+pos}")
                     key_offset = pos + magiclen
                     # a key is cross the boundary, skip it and search it later
                     if (key_offset + keylen) >= readlength:
                         break
                     key_data = data[key_offset:key_offset + keylen]
                     keys.append(key_data)
-                    i+=1
-                    print(f" No. {i} key found, {100*(f.tell()-readlength)/size:.2f}%")
+                    founded_num+=1
 
                     # add one byte here, maybe we could find more
                     # possiable key
@@ -67,7 +66,13 @@ def find_keys(fname):
                 # Make sure we didn't miss any keys that
                 # at the boundary of the blocks
                 f.seek(f.tell() - (32 + magiclen))
+                pbar.update(readlength-(32+magiclen))
+            else:
+                pbar.update(len(data))
 
+            pbar.set_description(f"Scanning private keys... Founded {founded_num}")
+
+    pbar.close()
     return keys
 
 def check_validate(src_f, dst_f):
