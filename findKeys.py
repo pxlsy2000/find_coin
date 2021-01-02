@@ -3,19 +3,23 @@ import os
 import bitcoin
 import time
 from tqdm import tqdm
-from multiprocessing import Pool
+import multiprocessing as mp
+from tqdm.contrib.concurrent import process_map  # or thread_map
 
 # Find key from image Based on a magic number
 
 # bytes to read at a time from file (4GB)
 readlength=4*1024*1024*1024
-magic = b"\x81\xD3\x02\x01\x01\x04\x20"
-#magic = b"\x04\x20"
+#magic = b"\x81\xD3\x02\x01\x01\x04\x20"
+magic = b"\x04\x20"
 magiclen = len(magic)
 keylen = 32
 
 private_key_file="private_keys"
-target_addr = "1PUXsA9TXsTNkBqwz7P3YWsGq9piqe8rFt"
+target_addr = "1PUXsA9TXsTNkBqwz7P3YWsGq9piqe8rFt"  #True addr
+#target_addr = "1CJ9UKggqH8AkSwLzgh9eC53s2r1k7pAxB" # Test addr in test wallet.dat
+#target_addr = "1ErQ7tRuZBCw4TLDhGizA6dK8nmDwmN8vH" # Test addr in images
+
 
 def find_keys(fname):
     keys = list()
@@ -75,6 +79,23 @@ def find_keys(fname):
     pbar.close()
     return keys
 
+def __check_valid(k):
+    #get raw priv key:
+    decode_private_key = bitcoin.decode_privkey(k)
+    if decode_private_key >= bitcoin.N:
+        return None
+    #get compressed priv key:
+    compressed_private_key = bitcoin.encode_privkey(decode_private_key, "hex_compressed")
+
+    #get raw addr & compressed addr
+    addr_raw = bitcoin.privkey_to_address(decode_private_key)
+    addr_comp = bitcoin.privkey_to_address(compressed_private_key)
+
+    if addr_raw == target_addr or addr_comp == target_addr:
+        print(f"FOUND ONE!!!! PRIVATE KEY IS: {hex(decode_private_key)}")
+        return hex(decode_private_key)
+
+
 def check_validate(src_f, dst_f):
     #open file and got all private key in a list
     with open(src_f, "r") as f:
@@ -84,29 +105,16 @@ def check_validate(src_f, dst_f):
     for line in lines:
         keys.append(line.strip())
 
-    founded=[]
+    # Using tqdm parallel method to do this
+    chunk_size = (len(keys)//6)//10
 
-    total_num=len(keys)
-
-    for (i, k) in enumerate(keys):
-        #get raw priv key:
-        decode_private_key = bitcoin.decode_privkey(k)
-        #get compressed priv key:
-        compressed_private_key = bitcoin.encode_privkey(decode_private_key, "hex_compressed")
-
-        #get raw addr & compressed addr
-        addr_raw = bitcoin.privkey_to_address(decode_private_key)
-        addr_comp = bitcoin.privkey_to_address(compressed_private_key)
-
-        if addr_raw == target_addr or addr_comp == target_addr:
-            print(f"FOUND ONE!!!! PRIVATE KEY IS: {hex(decode_private_key)}")
-            founded.append(hex(decode_private_key))
-
+    founded=process_map(__check_valid, keys, chunksize=chunk_size, max_workers=mp.cpu_count())
 
     with open(dst_f,"w") as f:
         for line in founded:
-            f.write(line)
-            f.write("\n")
+            if(line!=None):
+                f.write(line)
+                f.write("\n")
 
 
 def main():
